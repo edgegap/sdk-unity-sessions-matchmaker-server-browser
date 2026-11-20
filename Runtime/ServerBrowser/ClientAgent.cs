@@ -77,7 +77,12 @@ namespace Edgegap.ServerBrowser
                 throw new Exception("AuthToken not declared.");
             }
 
-            Api = new Api<ServerInstanceMetadata, SlotMetadata>(Handler, AuthToken, BaseUrl);
+            Api = new Api<ServerInstanceMetadata, SlotMetadata>(
+                Handler,
+                AuthToken,
+                BaseUrl,
+                RequestTimeoutSeconds
+            );
 
             L.SubscribeLogger(Monitor, "SB", "Monitor");
             Monitor.Subscribe(onMonitorUpdate);
@@ -152,9 +157,11 @@ namespace Edgegap.ServerBrowser
 
         public void GetNextPage()
         {
-            if (Instances.Current is null || Instances.Current.Pagination.NextCursor is null)
+            string nextCursor = Instances.Current?.Pagination?.NextCursor;
+            if (nextCursor is null)
             {
                 Instances._Error("instance list last page reached");
+                return;
             }
 
             Api.ListServerInstances(
@@ -163,14 +170,17 @@ namespace Edgegap.ServerBrowser
                     UnityWebRequest request
                 ) =>
                 {
-                    response.ServerInstances.InsertRange(0, Instances.Current.ServerInstances);
+                    if (Instances.Current?.ServerInstances is not null)
+                    {
+                        response.ServerInstances.InsertRange(0, Instances.Current.ServerInstances);
+                    }
                     Instances._Update(response, "instance list next page retrieved");
                 },
                 (string error, UnityWebRequest request) =>
                 {
                     Instances._Error($"instance list next page retrieval failed\n{error}", null);
                 },
-                Instances.Current.Pagination.NextCursor,
+                nextCursor,
                 ListFilter,
                 ListOrder,
                 ListLimit
@@ -277,19 +287,33 @@ namespace Edgegap.ServerBrowser
                     UnityWebRequest request
                 ) =>
                 {
-                    int index = Instances.Current.ServerInstances.FindIndex(instance =>
+                    // copy the cached list, so Previous and Current differ for subscribers
+                    InstanceListResponseDTO<ServerInstanceMetadata, SlotMetadata> cached =
+                        Instances.Current;
+                    InstanceListResponseDTO<ServerInstanceMetadata, SlotMetadata> updated =
+                        new InstanceListResponseDTO<ServerInstanceMetadata, SlotMetadata>();
+                    if (cached?.ServerInstances is not null)
+                    {
+                        updated.ServerInstances.AddRange(cached.ServerInstances);
+                    }
+                    if (cached?.Pagination is not null)
+                    {
+                        updated.Pagination = cached.Pagination;
+                    }
+
+                    int index = updated.ServerInstances.FindIndex(instance =>
                         instance.RequestID == requestID
                     );
 
                     if (index == -1)
                     {
-                        Instances.Current.ServerInstances.Insert(0, response);
-                        Instances._Update(Instances.Current, "instance not cached, prepending");
+                        updated.ServerInstances.Insert(0, response);
+                        Instances._Update(updated, "instance not cached, prepending");
                     }
                     else
                     {
-                        Instances.Current.ServerInstances[index] = response;
-                        Instances._Update(Instances.Current, "instance details retrieved");
+                        updated.ServerInstances[index] = response;
+                        Instances._Update(updated, "instance details retrieved");
                     }
                 },
                 (string error, UnityWebRequest request) =>

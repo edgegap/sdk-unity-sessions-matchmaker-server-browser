@@ -110,6 +110,13 @@ namespace Edgegap.ServerBrowser
                 throw new Exception("AuthToken not declared.");
             }
 
+            // clamp before constructing Api so requests use the clamped timeout
+            bool timeoutClamped = HeartbeatIntervalSeconds < RequestTimeoutSeconds;
+            if (timeoutClamped)
+            {
+                RequestTimeoutSeconds = (int)HeartbeatIntervalSeconds;
+            }
+
             Api = new Api<ServerInstanceMetadata, SlotMetadata>(
                 Handler,
                 AuthToken,
@@ -120,6 +127,14 @@ namespace Edgegap.ServerBrowser
             L.SubscribeLogger(Monitor, "SB", "Monitor");
             Monitor.Subscribe(onMonitorUpdate);
 
+            if (timeoutClamped)
+            {
+                Monitor._Notify(
+                    $"request timeout clamped to heartbeat [{RequestTimeoutSeconds}]",
+                    ObservableActionType.Warn
+                );
+            }
+
             L.SubscribeLogger(Instance, "SB", "Instance");
             Instance.Subscribe(onInstanceUpdate);
 
@@ -127,15 +142,6 @@ namespace Edgegap.ServerBrowser
             if (onConfirmationsUpdate is not null)
             {
                 Confirmations.Subscribe(onConfirmationsUpdate);
-            }
-
-            if (HeartbeatIntervalSeconds < RequestTimeoutSeconds)
-            {
-                RequestTimeoutSeconds = (int)HeartbeatIntervalSeconds;
-                Monitor._Notify(
-                    $"request timeout clamped to heartbeat [{RequestTimeoutSeconds}]",
-                    ObservableActionType.Warn
-                );
             }
 
             Status();
@@ -165,6 +171,14 @@ namespace Edgegap.ServerBrowser
 
         public void DiscoverInstance(InstanceDTO<ServerInstanceMetadata, SlotMetadata> instance)
         {
+            DiscoverInstance(instance, null);
+        }
+
+        internal void DiscoverInstance(
+            InstanceDTO<ServerInstanceMetadata, SlotMetadata> instance,
+            Action onFailed
+        )
+        {
             Api.CreateServerInstance(
                 instance,
                 (
@@ -185,6 +199,7 @@ namespace Edgegap.ServerBrowser
                     {
                         Instance._Error($"discovery failed\n{error}");
                     }
+                    onFailed?.Invoke();
                 }
             );
         }
@@ -299,7 +314,7 @@ namespace Edgegap.ServerBrowser
                 {
                     if (request.responseCode == 404)
                     {
-                        DiscoverInstance(Instance.Current);
+                        Rediscover();
                     }
                     else
                     {
@@ -315,8 +330,73 @@ namespace Edgegap.ServerBrowser
 
         internal IEnumerator DelayedHeartbeat(int consecutiveErrors = 0)
         {
-            yield return new WaitForSeconds(HeartbeatIntervalSeconds + (0.1f * Random.value));
+            // jitter scales with the interval and never delays a heartbeat past it
+            yield return new WaitForSeconds(HeartbeatIntervalSeconds * Random.Range(0.8f, 1f));
             Heartbeat(consecutiveErrors);
+        }
+
+        /// <summary>
+        /// Rediscover an expired instance with pending slot and instance updates applied,
+        /// so the service doesn't get stale seat counts. Updates are re-enqueued on failure.
+        /// </summary>
+        internal void Rediscover()
+        {
+            InstanceDTO<ServerInstanceMetadata, SlotMetadata> current = Instance.Current;
+            if (current is null)
+            {
+                return;
+            }
+
+            List<SlotUpdateDTO<SlotMetadata>> slotUpdates = new List<SlotUpdateDTO<SlotMetadata>>();
+            while (PendingSlotUpdates.TryDequeue(out SlotUpdateDTO<SlotMetadata> slotUpdate))
+            {
+                slotUpdates.Add(slotUpdate);
+            }
+            List<ServerInstanceMetadata> instanceUpdates = new List<ServerInstanceMetadata>();
+            while (PendingInstanceUpdates.TryDequeue(out ServerInstanceMetadata instanceUpdate))
+            {
+                instanceUpdates.Add(instanceUpdate);
+            }
+
+            ServerInstanceMetadata metadata = current.Metadata;
+            foreach (ServerInstanceMetadata update in instanceUpdates)
+            {
+                metadata = metadata is null ? update : metadata.Merge(update);
+            }
+
+            List<SlotDTO<SlotMetadata>> slots = current.Slots is null
+                ? new List<SlotDTO<SlotMetadata>>()
+                : new List<SlotDTO<SlotMetadata>>(current.Slots);
+            foreach (SlotUpdateDTO<SlotMetadata> update in slotUpdates)
+            {
+                int index = slots.FindIndex(s => s.Name == update.Name);
+                if (index < 0)
+                {
+                    Instance._Error($"slot update failed (not found) [{update.Name}]");
+                    continue;
+                }
+                slots[index] = slots[index].ApplyUpdate(update);
+            }
+
+            DiscoverInstance(
+                new InstanceDTO<ServerInstanceMetadata, SlotMetadata>()
+                {
+                    RequestID = current.RequestID,
+                    CreatedAt = current.CreatedAt,
+                    UpdatedAt = current.UpdatedAt,
+                    TotalAvailableSeats = current.TotalAvailableSeats,
+                    TotalJoinableSeats = current.TotalJoinableSeats,
+                    TotalReservedSeats = current.TotalReservedSeats,
+                    Metadata = metadata,
+                    Server = current.Server,
+                    Slots = slots,
+                },
+                () =>
+                {
+                    slotUpdates.ForEach(PendingSlotUpdates.Enqueue);
+                    instanceUpdates.ForEach(PendingInstanceUpdates.Enqueue);
+                }
+            );
         }
 
         internal void FlushConfirmations()
@@ -392,54 +472,99 @@ namespace Edgegap.ServerBrowser
             FlushingUpdates = true;
             Dictionary<string, SlotUpdateDTO<SlotMetadata>> mergedUpdates =
                 new Dictionary<string, SlotUpdateDTO<SlotMetadata>>();
+            // sum of queued seat deltas per slot, re-enqueued if the update fails
+            Dictionary<string, int> mergedDeltas = new Dictionary<string, int>();
 
-            while (PendingSlotUpdates.TryDequeue(out SlotUpdateDTO<SlotMetadata> update))
+            try
             {
-                if (!mergedUpdates.ContainsKey(update.Name))
+                while (PendingSlotUpdates.TryDequeue(out SlotUpdateDTO<SlotMetadata> update))
                 {
-                    SlotDTO<SlotMetadata> slot = Instance.Current.Slots.Find(s =>
-                        s.Name == update.Name
-                    );
+                    if (!mergedUpdates.ContainsKey(update.Name))
+                    {
+                        SlotDTO<SlotMetadata> slot = Instance.Current?.Slots?.Find(s =>
+                            s.Name == update.Name
+                        );
+                        if (slot is null)
+                        {
+                            Instance._Error($"slot update failed (not found) [{update.Name}]");
+                            continue;
+                        }
 
+                        mergedUpdates[update.Name] = new SlotUpdateDTO<SlotMetadata>(
+                            slot.Name,
+                            (int)slot.AvailableSeats,
+                            slot.Metadata
+                        );
+                        mergedDeltas[update.Name] = 0;
+                    }
+                    SlotUpdateDTO<SlotMetadata> merged = mergedUpdates[update.Name];
+                    mergedDeltas[update.Name] += update.AvailableSeats;
                     mergedUpdates[update.Name] = new SlotUpdateDTO<SlotMetadata>(
-                        slot.Name,
-                        (int)slot.AvailableSeats,
-                        slot.Metadata
+                        update.Name,
+                        merged.AvailableSeats + update.AvailableSeats,
+                        merged.Metadata is null
+                            ? update.Metadata
+                            : merged.Metadata.Merge(update.Metadata)
                     );
                 }
-                mergedUpdates[update.Name] = new SlotUpdateDTO<SlotMetadata>(
-                    update.Name,
-                    mergedUpdates[update.Name].AvailableSeats + update.AvailableSeats,
-                    mergedUpdates[update.Name]?.Metadata?.Merge(update.Metadata)
-                );
+            }
+            catch (Exception e)
+            {
+                FlushingUpdates = false;
+                Instance._Error($"slot update failed\n{e}");
+                return;
             }
 
             ConcurrentQueue<string> updatesFinished = new ConcurrentQueue<string>();
             foreach (var update in mergedUpdates.Values)
             {
+                int delta = mergedDeltas[update.Name];
                 Api.UpdateSlot(
                     Instance.Current.RequestID,
                     update,
                     (SlotDTO<SlotMetadata> slot, UnityWebRequest request) =>
                     {
-                        Instance.Current.Slots[
-                            Instance.Current.Slots.FindIndex(slot => slot.Name == update.Name)
-                        ] = slot;
-                        Instance._Update(Instance.Current, $"slot updated [{update.Name}]");
-                        updatesFinished.Enqueue(update.Name);
+                        try
+                        {
+                            int index = Instance.Current.Slots.FindIndex(s =>
+                                s.Name == update.Name
+                            );
+                            if (index >= 0)
+                            {
+                                Instance.Current.Slots[index] = slot;
+                            }
+                            Instance._Update(Instance.Current, $"slot updated [{update.Name}]");
+                        }
+                        finally
+                        {
+                            updatesFinished.Enqueue(update.Name);
+                        }
                     },
                     (string error, UnityWebRequest request) =>
                     {
-                        Instance._Error(
-                            $"slot update failed, enqueuing for retry [{update.Name}]\n{error}"
-                        );
-                        PendingSlotUpdates.Enqueue(update);
-                        updatesFinished.Enqueue(update.Name);
+                        try
+                        {
+                            Instance._Error(
+                                $"slot update failed, enqueuing for retry [{update.Name}]\n{error}"
+                            );
+                            // re-enqueue the seat delta, not the absolute seat count
+                            PendingSlotUpdates.Enqueue(
+                                new SlotUpdateDTO<SlotMetadata>(update.Name, delta, update.Metadata)
+                            );
+                        }
+                        finally
+                        {
+                            updatesFinished.Enqueue(update.Name);
+                        }
                     }
                 );
             }
             Handler.StartCoroutine(
-                WaitForUpdates(updatesFinished, mergedUpdates.Count, FlushInstanceUpdates)
+                WaitForUpdates(
+                    updatesFinished,
+                    mergedUpdates.Count,
+                    () => FlushInstanceUpdates(continuingFlush: true)
+                )
             );
         }
 
@@ -453,44 +578,85 @@ namespace Edgegap.ServerBrowser
             onComplete.Invoke();
         }
 
-        internal void FlushInstanceUpdates()
+        /// <summary>
+        /// PATCH queued instance metadata, or refresh the instance with a GET when there's none.
+        /// </summary>
+        /// <param name="continuingFlush">true when called after slot updates of the same flush</param>
+        internal void FlushInstanceUpdates(bool continuingFlush = false)
         {
-            if (!FlushingUpdates)
+            if (!continuingFlush)
             {
-                FlushingUpdates = true;
-
-                if (PendingSlotUpdates.IsEmpty)
+                if (FlushingUpdates)
                 {
-                    Api.GetServerInstance(
-                        Instance.Current.RequestID,
-                        (
-                            InstanceDTO<ServerInstanceMetadata, SlotMetadata> instance,
-                            UnityWebRequest request
-                        ) =>
-                        {
-                            Instance._Update(instance, "instance updated");
-                            FlushingUpdates = false;
-                        },
-                        (string error, UnityWebRequest request) =>
-                        {
-                            Instance._Error(
-                                $"instance update failed, enqueuing for retry\n{error}"
-                            );
-                            if (PendingInstanceUpdates.IsEmpty)
-                            {
-                                PendingInstanceUpdates.Enqueue(Instance.Current.Metadata);
-                            }
-                            FlushingUpdates = false;
-                        }
+                    Instance._Notify(
+                        "agent throttled concurrent instance update",
+                        ObservableActionType.Warn
                     );
                     return;
                 }
+                FlushingUpdates = true;
             }
 
+            try
+            {
+                if (PendingInstanceUpdates.IsEmpty)
+                {
+                    RefreshInstance();
+                }
+                else
+                {
+                    PatchInstance();
+                }
+            }
+            catch (Exception e)
+            {
+                FlushingUpdates = false;
+                Instance._Error($"instance update failed\n{e}");
+            }
+        }
+
+        private void RefreshInstance()
+        {
+            Api.GetServerInstance(
+                Instance.Current.RequestID,
+                (
+                    InstanceDTO<ServerInstanceMetadata, SlotMetadata> instance,
+                    UnityWebRequest request
+                ) =>
+                {
+                    try
+                    {
+                        Instance._Update(instance, "instance updated");
+                    }
+                    finally
+                    {
+                        FlushingUpdates = false;
+                    }
+                },
+                (string error, UnityWebRequest request) =>
+                {
+                    try
+                    {
+                        Instance._Error($"instance update failed, enqueuing for retry\n{error}");
+                        if (PendingInstanceUpdates.IsEmpty)
+                        {
+                            PendingInstanceUpdates.Enqueue(Instance.Current.Metadata);
+                        }
+                    }
+                    finally
+                    {
+                        FlushingUpdates = false;
+                    }
+                }
+            );
+        }
+
+        private void PatchInstance()
+        {
             ServerInstanceMetadata mergedUpdate = Instance.Current.Metadata;
             while (PendingInstanceUpdates.TryDequeue(out ServerInstanceMetadata update))
             {
-                mergedUpdate = mergedUpdate.Merge(update);
+                mergedUpdate = mergedUpdate is null ? update : mergedUpdate.Merge(update);
             }
 
             Api.UpdateServerInstance(
@@ -501,15 +667,27 @@ namespace Edgegap.ServerBrowser
                     UnityWebRequest request
                 ) =>
                 {
-                    response.Slots = Instance.Current.Slots; // patch doesn't return slots in SB 1.0.0
-                    Instance._Update(response, "instance updated");
-                    FlushingUpdates = false;
+                    try
+                    {
+                        response.Slots = Instance.Current.Slots; // patch doesn't return slots in SB 1.0.0
+                        Instance._Update(response, "instance updated");
+                    }
+                    finally
+                    {
+                        FlushingUpdates = false;
+                    }
                 },
                 (string error, UnityWebRequest request) =>
                 {
-                    Instance._Error($"instance update failed, enqueuing for retry\n{error}");
-                    PendingInstanceUpdates.Enqueue(mergedUpdate);
-                    FlushingUpdates = false;
+                    try
+                    {
+                        Instance._Error($"instance update failed, enqueuing for retry\n{error}");
+                        PendingInstanceUpdates.Enqueue(mergedUpdate);
+                    }
+                    finally
+                    {
+                        FlushingUpdates = false;
+                    }
                 }
             );
         }

@@ -10,15 +10,28 @@ namespace Edgegap.ServerBrowser
             NullValueHandling = NullValueHandling.Ignore,
         };
 
+        /// <summary>
+        /// Returns a copy of this metadata with the fields set in <paramref name="other"/> applied.
+        /// A field counts as unset when it's null, or for value types (int, bool, float, ...)
+        /// when it equals the value of a new instance, so partial updates keep stored values.
+        /// Declare value-type fields nullable (int?, bool?) to be able to update them back to
+        /// their default value.
+        /// </summary>
         public T Merge<T>(T other)
             where T : MetadataDTO, new()
         {
             T result = new T();
+            T defaults = new T();
             const BindingFlags flags = BindingFlags.Instance | BindingFlags.Public;
 
             foreach (var field in result.GetType().GetFields(flags))
             {
-                field.SetValue(result, field.GetValue(other) ?? field.GetValue(this));
+                object current = field.GetValue(this);
+                object update = other is null ? null : field.GetValue(other);
+                bool unset =
+                    update is null
+                    || (field.FieldType.IsValueType && Equals(update, field.GetValue(defaults)));
+                field.SetValue(result, unset ? current : update);
             }
 
             return result;

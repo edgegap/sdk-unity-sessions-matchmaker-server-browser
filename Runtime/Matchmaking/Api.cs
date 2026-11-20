@@ -22,9 +22,14 @@ namespace Edgegap.Matchmaking
         internal string PATH_GROUP_UP = "groups";
         internal string PATH_BACKFILL = "backfills";
 
-        public Api(MonoBehaviour parent, string authToken, string baseUrl)
+        public Api(
+            MonoBehaviour parent,
+            string authToken,
+            string baseUrl,
+            int requestTimeoutSeconds = 0
+        )
         {
-            Request = new SafeHttpRequest(parent);
+            Request = new SafeHttpRequest(parent, requestTimeoutSeconds);
             AuthToken = authToken;
             BaseUrl = baseUrl;
         }
@@ -41,19 +46,19 @@ namespace Edgegap.Matchmaking
                 AuthToken,
                 (string response, UnityWebRequest request) =>
                 {
+                    MonitorResponseDTO monitor;
                     try
                     {
-                        MonitorResponseDTO monitor =
-                            JsonConvert.DeserializeObject<MonitorResponseDTO>(response);
-                        onSuccessDelegate(monitor, request);
+                        monitor = JsonConvert.DeserializeObject<MonitorResponseDTO>(response);
                     }
                     catch (Exception e)
                     {
-                        L.Error(
-                            $"Matchmaking | Couldn't parse monitor, update Edgegap SDK.\n{e.Message}"
-                        );
-                        throw;
+                        string error = $"Couldn't parse monitor, update Edgegap SDK.\n{e.Message}";
+                        L.Error($"Matchmaking | {error}");
+                        onErrorDelegate(error, request);
+                        return;
                     }
+                    onSuccessDelegate(monitor, request);
                 },
                 onErrorDelegate
             );
@@ -69,19 +74,19 @@ namespace Edgegap.Matchmaking
                 AuthToken,
                 (string response, UnityWebRequest request) =>
                 {
+                    BeaconsResponseDTO beacons;
                     try
                     {
-                        BeaconsResponseDTO beacons =
-                            JsonConvert.DeserializeObject<BeaconsResponseDTO>(response);
-                        onSuccessDelegate(beacons, request);
+                        beacons = JsonConvert.DeserializeObject<BeaconsResponseDTO>(response);
                     }
                     catch (Exception e)
                     {
-                        L.Error(
-                            $"Matchmaking | Couldn't parse beacons, update Edgegap SDK.\n{e.Message}"
-                        );
-                        throw;
+                        string error = $"Couldn't parse beacons, update Edgegap SDK.\n{e.Message}";
+                        L.Error($"Matchmaking | {error}");
+                        onErrorDelegate(error, request);
+                        return;
                     }
+                    onSuccessDelegate(beacons, request);
                 },
                 onErrorDelegate
             );
@@ -102,19 +107,20 @@ namespace Edgegap.Matchmaking
                 JsonConvert.SerializeObject(ticket),
                 (string response, UnityWebRequest request) =>
                 {
+                    TicketResponseDTO assignment;
                     try
                     {
-                        TicketResponseDTO assignment =
-                            JsonConvert.DeserializeObject<TicketResponseDTO>(response);
-                        onSuccessDelegate(assignment, request);
+                        assignment = JsonConvert.DeserializeObject<TicketResponseDTO>(response);
                     }
                     catch (Exception e)
                     {
-                        L.Error(
-                            $"Matchmaking | Couldn't parse assignment, update Edgegap SDK.\n{e.Message}"
-                        );
-                        throw;
+                        string error =
+                            $"Couldn't parse assignment, update Edgegap SDK.\n{e.Message}";
+                        L.Error($"Matchmaking | {error}");
+                        onErrorDelegate(error, request);
+                        return;
                     }
+                    onSuccessDelegate(assignment, request);
                 },
                 onErrorDelegate
             );
@@ -133,19 +139,22 @@ namespace Edgegap.Matchmaking
                 JsonConvert.SerializeObject(groupTicket),
                 (string response, UnityWebRequest request) =>
                 {
+                    GroupTicketsResponseDTO assignment;
                     try
                     {
-                        GroupTicketsResponseDTO assignment =
-                            JsonConvert.DeserializeObject<GroupTicketsResponseDTO>(response);
-                        onSuccessDelegate(assignment, request);
+                        assignment = JsonConvert.DeserializeObject<GroupTicketsResponseDTO>(
+                            response
+                        );
                     }
                     catch (Exception e)
                     {
-                        L.Error(
-                            $"Matchmaking | Couldn't parse assignment, update Edgegap SDK.\n{e.Message}"
-                        );
-                        throw;
+                        string error =
+                            $"Couldn't parse assignment, update Edgegap SDK.\n{e.Message}";
+                        L.Error($"Matchmaking | {error}");
+                        onErrorDelegate(error, request);
+                        return;
                     }
+                    onSuccessDelegate(assignment, request);
                 },
                 onErrorDelegate
             );
@@ -162,19 +171,20 @@ namespace Edgegap.Matchmaking
                 AuthToken,
                 (string response, UnityWebRequest request) =>
                 {
+                    TicketResponseDTO assignment;
                     try
                     {
-                        TicketResponseDTO assignment =
-                            JsonConvert.DeserializeObject<TicketResponseDTO>(response);
-                        onSuccessDelegate(assignment, request);
+                        assignment = JsonConvert.DeserializeObject<TicketResponseDTO>(response);
                     }
                     catch (Exception e)
                     {
-                        L.Error(
-                            $"Matchmaking | Couldn't parse assignment, update Edgegap SDK.\n{e.Message}"
-                        );
-                        throw;
+                        string error =
+                            $"Couldn't parse assignment, update Edgegap SDK.\n{e.Message}";
+                        L.Error($"Matchmaking | {error}");
+                        onErrorDelegate(error, request);
+                        return;
                     }
+                    onSuccessDelegate(assignment, request);
                 },
                 onErrorDelegate
             );
@@ -212,19 +222,20 @@ namespace Edgegap.Matchmaking
                 JsonConvert.SerializeObject(group),
                 (string response, UnityWebRequest request) =>
                 {
+                    GroupUpResponseDTO group;
                     try
                     {
-                        GroupUpResponseDTO group =
-                            JsonConvert.DeserializeObject<GroupUpResponseDTO>(response);
-                        onSuccessDelegate(group, request);
+                        group = JsonConvert.DeserializeObject<GroupUpResponseDTO>(response);
                     }
                     catch (Exception e)
                     {
-                        L.Error(
-                            $"Couldn't parse group, consider updating Matchmaking SDK. {e.Message}"
-                        );
-                        throw;
+                        string error =
+                            $"Couldn't parse group, consider updating Matchmaking SDK. {e.Message}";
+                        L.Error($"Matchmaking | {error}");
+                        onErrorDelegate(error, request);
+                        return;
                     }
+                    onSuccessDelegate(group, request);
                 },
                 onErrorDelegate
             );
@@ -241,19 +252,20 @@ namespace Edgegap.Matchmaking
                 AuthToken,
                 (string response, UnityWebRequest request) =>
                 {
+                    GroupDetailResponse details;
                     try
                     {
-                        GroupDetailResponse details =
-                            JsonConvert.DeserializeObject<GroupDetailResponse>(response);
-                        onSuccessDelegate(details, request);
+                        details = JsonConvert.DeserializeObject<GroupDetailResponse>(response);
                     }
                     catch (Exception e)
                     {
-                        L.Error(
-                            $"Couldn't parse details, consider updating Matchmaking SDK. {e.Message}"
-                        );
-                        throw;
+                        string error =
+                            $"Couldn't parse details, consider updating Matchmaking SDK. {e.Message}";
+                        L.Error($"Matchmaking | {error}");
+                        onErrorDelegate(error, request);
+                        return;
                     }
+                    onSuccessDelegate(details, request);
                 },
                 onErrorDelegate
             );
@@ -290,19 +302,20 @@ namespace Edgegap.Matchmaking
                 JsonConvert.SerializeObject(member),
                 (string response, UnityWebRequest request) =>
                 {
+                    GroupUpResponseDTO member;
                     try
                     {
-                        GroupUpResponseDTO member =
-                            JsonConvert.DeserializeObject<GroupUpResponseDTO>(response);
-                        onSuccessDelegate(member, request);
+                        member = JsonConvert.DeserializeObject<GroupUpResponseDTO>(response);
                     }
                     catch (Exception e)
                     {
-                        L.Error(
-                            $"Couldn't parse member, consider updating Matchmaking SDK. {e.Message}"
-                        );
-                        throw;
+                        string error =
+                            $"Couldn't parse member, consider updating Matchmaking SDK. {e.Message}";
+                        L.Error($"Matchmaking | {error}");
+                        onErrorDelegate(error, request);
+                        return;
                     }
+                    onSuccessDelegate(member, request);
                 },
                 onErrorDelegate
             );
@@ -320,19 +333,20 @@ namespace Edgegap.Matchmaking
                 AuthToken,
                 (string response, UnityWebRequest request) =>
                 {
+                    GroupUpResponseDTO details;
                     try
                     {
-                        GroupUpResponseDTO details =
-                            JsonConvert.DeserializeObject<GroupUpResponseDTO>(response);
-                        onSuccessDelegate(details, request);
+                        details = JsonConvert.DeserializeObject<GroupUpResponseDTO>(response);
                     }
                     catch (Exception e)
                     {
-                        L.Error(
-                            $"Couldn't parse details, consider updating Matchmaking SDK. {e.Message}"
-                        );
-                        throw;
+                        string error =
+                            $"Couldn't parse details, consider updating Matchmaking SDK. {e.Message}";
+                        L.Error($"Matchmaking | {error}");
+                        onErrorDelegate(error, request);
+                        return;
                     }
+                    onSuccessDelegate(details, request);
                 },
                 onErrorDelegate
             );
@@ -354,19 +368,20 @@ namespace Edgegap.Matchmaking
                 ),
                 (string response, UnityWebRequest request) =>
                 {
+                    GroupUpResponseDTO member;
                     try
                     {
-                        GroupUpResponseDTO member =
-                            JsonConvert.DeserializeObject<GroupUpResponseDTO>(response);
-                        onSuccessDelegate(member, request);
+                        member = JsonConvert.DeserializeObject<GroupUpResponseDTO>(response);
                     }
                     catch (Exception e)
                     {
-                        L.Error(
-                            $"Couldn't parse member, consider updating Matchmaking SDK. {e.Message}"
-                        );
-                        throw;
+                        string error =
+                            $"Couldn't parse member, consider updating Matchmaking SDK. {e.Message}";
+                        L.Error($"Matchmaking | {error}");
+                        onErrorDelegate(error, request);
+                        return;
                     }
+                    onSuccessDelegate(member, request);
                 },
                 onErrorDelegate
             );
@@ -404,20 +419,22 @@ namespace Edgegap.Matchmaking
                 JsonConvert.SerializeObject(backfill),
                 (string response, UnityWebRequest request) =>
                 {
+                    BackfillResponseDTO<A> backfillRes;
                     try
                     {
-                        BackfillResponseDTO<A> backfillRes = JsonConvert.DeserializeObject<
-                            BackfillResponseDTO<A>
-                        >(response);
-                        onSuccessDelegate(backfillRes, request);
+                        backfillRes = JsonConvert.DeserializeObject<BackfillResponseDTO<A>>(
+                            response
+                        );
                     }
                     catch (Exception e)
                     {
-                        L.Error(
-                            $"Couldn't parse backfill, consider updating Matchmaking SDK. {e.Message}"
-                        );
-                        throw;
+                        string error =
+                            $"Couldn't parse backfill, consider updating Matchmaking SDK. {e.Message}";
+                        L.Error($"Matchmaking | {error}");
+                        onErrorDelegate(error, request);
+                        return;
                     }
+                    onSuccessDelegate(backfillRes, request);
                 },
                 onErrorDelegate
             );
@@ -434,20 +451,22 @@ namespace Edgegap.Matchmaking
                 AuthToken,
                 (string response, UnityWebRequest request) =>
                 {
+                    BackfillResponseDTO<A> backfillRes;
                     try
                     {
-                        BackfillResponseDTO<A> backfillRes = JsonConvert.DeserializeObject<
-                            BackfillResponseDTO<A>
-                        >(response);
-                        onSuccessDelegate(backfillRes, request);
+                        backfillRes = JsonConvert.DeserializeObject<BackfillResponseDTO<A>>(
+                            response
+                        );
                     }
                     catch (Exception e)
                     {
-                        L.Error(
-                            $"Couldn't parse backfill, consider updating Matchmaking SDK. {e.Message}"
-                        );
-                        throw;
+                        string error =
+                            $"Couldn't parse backfill, consider updating Matchmaking SDK. {e.Message}";
+                        L.Error($"Matchmaking | {error}");
+                        onErrorDelegate(error, request);
+                        return;
                     }
+                    onSuccessDelegate(backfillRes, request);
                 },
                 onErrorDelegate
             );

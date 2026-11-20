@@ -10,6 +10,12 @@ namespace Edgegap
         [JsonProperty("beacons")]
         public BeaconDTO[] Beacons;
 
+        /// <summary>
+        /// Count as a number, null if missing or not a number.
+        /// </summary>
+        [JsonIgnore]
+        public int? BeaconCount => PortMappingDTO.ParseInt(Count);
+
         public override string ToString()
         {
             return JsonConvert.SerializeObject(this);

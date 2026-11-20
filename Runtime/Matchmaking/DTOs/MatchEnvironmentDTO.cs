@@ -59,7 +59,11 @@ namespace Edgegap.Matchmaking
                     InjectedTicketDTO<A> ticket = Env.TryParseEnvVariableJSON<InjectedTicketDTO<A>>(
                         entry
                     );
-                    Tickets[ticket.ID] = ticket;
+                    // skip tickets that couldn't be parsed, a warning was already logged
+                    if (ticket?.ID is not null)
+                    {
+                        Tickets[ticket.ID] = ticket;
+                    }
                 }
             }
         }
