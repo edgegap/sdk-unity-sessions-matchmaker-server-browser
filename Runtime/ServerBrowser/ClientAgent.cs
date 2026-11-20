@@ -77,7 +77,12 @@ namespace Edgegap.ServerBrowser
                 throw new Exception("AuthToken not declared.");
             }
 
-            Api = new Api<ServerInstanceMetadata, SlotMetadata>(Handler, AuthToken, BaseUrl);
+            Api = new Api<ServerInstanceMetadata, SlotMetadata>(
+                Handler,
+                AuthToken,
+                BaseUrl,
+                RequestTimeoutSeconds
+            );
 
             L.SubscribeLogger(Monitor, "SB", "Monitor");
             Monitor.Subscribe(onMonitorUpdate);

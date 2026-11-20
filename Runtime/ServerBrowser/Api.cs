@@ -46,19 +46,19 @@ namespace Edgegap.ServerBrowser
                 AuthToken,
                 (string response, UnityWebRequest request) =>
                 {
+                    MonitorResponseDTO monitor;
                     try
                     {
-                        MonitorResponseDTO monitor =
-                            JsonConvert.DeserializeObject<MonitorResponseDTO>(response);
-                        onSuccessDelegate(monitor, request);
+                        monitor = JsonConvert.DeserializeObject<MonitorResponseDTO>(response);
                     }
                     catch (Exception e)
                     {
-                        L.Error(
-                            $"Matchmaking | Couldn't parse monitor, update Edgegap SDK.\n{e.Message}"
-                        );
-                        throw;
+                        string error = $"Couldn't parse monitor, update Edgegap SDK.\n{e.Message}";
+                        L.Error($"Server Browser | {error}");
+                        onErrorDelegate(error, request);
+                        return;
                     }
+                    onSuccessDelegate(monitor, request);
                 },
                 onErrorDelegate
             );
@@ -74,19 +74,19 @@ namespace Edgegap.ServerBrowser
                 AuthToken,
                 (string response, UnityWebRequest request) =>
                 {
+                    BeaconsResponseDTO beacons;
                     try
                     {
-                        BeaconsResponseDTO beacons =
-                            JsonConvert.DeserializeObject<BeaconsResponseDTO>(response);
-                        onSuccessDelegate(beacons, request);
+                        beacons = JsonConvert.DeserializeObject<BeaconsResponseDTO>(response);
                     }
                     catch (Exception e)
                     {
-                        L.Error(
-                            $"Matchmaking | Couldn't parse beacons, update Edgegap SDK.\n{e.Message}"
-                        );
-                        throw;
+                        string error = $"Couldn't parse beacons, update Edgegap SDK.\n{e.Message}";
+                        L.Error($"Server Browser | {error}");
+                        onErrorDelegate(error, request);
+                        return;
                     }
+                    onSuccessDelegate(beacons, request);
                 },
                 onErrorDelegate
             );
@@ -107,21 +107,22 @@ namespace Edgegap.ServerBrowser
                 serverInstance.ToString(),
                 (string response, UnityWebRequest request) =>
                 {
+                    InstanceDTO<ServerInstanceMetadata, SlotMetadata> instance;
                     try
                     {
-                        InstanceDTO<ServerInstanceMetadata, SlotMetadata> instance =
-                            JsonConvert.DeserializeObject<
-                                InstanceDTO<ServerInstanceMetadata, SlotMetadata>
-                            >(response);
-                        onSuccessDelegate(instance, request);
+                        instance = JsonConvert.DeserializeObject<
+                            InstanceDTO<ServerInstanceMetadata, SlotMetadata>
+                        >(response);
                     }
                     catch (Exception e)
                     {
-                        L.Error(
-                            $"Server Browser | Couldn't parse server instance, update Edgegap SDK.\n{e.Message}"
-                        );
-                        throw;
+                        string error =
+                            $"Couldn't parse server instance, update Edgegap SDK.\n{e.Message}";
+                        L.Error($"Server Browser | {error}");
+                        onErrorDelegate(error, request);
+                        return;
                     }
+                    onSuccessDelegate(instance, request);
                 },
                 onErrorDelegate
             );
@@ -177,21 +178,22 @@ namespace Edgegap.ServerBrowser
                 AuthToken,
                 (string response, UnityWebRequest request) =>
                 {
+                    InstanceListResponseDTO<ServerInstanceMetadata, SlotMetadata> instanceList;
                     try
                     {
-                        InstanceListResponseDTO<ServerInstanceMetadata, SlotMetadata> instanceList =
-                            JsonConvert.DeserializeObject<
-                                InstanceListResponseDTO<ServerInstanceMetadata, SlotMetadata>
-                            >(response);
-                        onSuccessDelegate(instanceList, request);
+                        instanceList = JsonConvert.DeserializeObject<
+                            InstanceListResponseDTO<ServerInstanceMetadata, SlotMetadata>
+                        >(response);
                     }
                     catch (Exception e)
                     {
-                        L.Error(
-                            $"Server Browser | Couldn't parse server instance list, update Edgegap SDK.\n{e.Message}"
-                        );
-                        throw;
+                        string error =
+                            $"Couldn't parse server instance list, update Edgegap SDK.\n{e.Message}";
+                        L.Error($"Server Browser | {error}");
+                        onErrorDelegate(error, request);
+                        return;
                     }
+                    onSuccessDelegate(instanceList, request);
                 },
                 onErrorDelegate
             );
@@ -211,21 +213,22 @@ namespace Edgegap.ServerBrowser
                 AuthToken,
                 (string response, UnityWebRequest request) =>
                 {
+                    InstanceDTO<ServerInstanceMetadata, SlotMetadata> instance;
                     try
                     {
-                        InstanceDTO<ServerInstanceMetadata, SlotMetadata> instance =
-                            JsonConvert.DeserializeObject<
-                                InstanceDTO<ServerInstanceMetadata, SlotMetadata>
-                            >(response);
-                        onSuccessDelegate(instance, request);
+                        instance = JsonConvert.DeserializeObject<
+                            InstanceDTO<ServerInstanceMetadata, SlotMetadata>
+                        >(response);
                     }
                     catch (Exception e)
                     {
-                        L.Error(
-                            $"Server Browser | Couldn't parse server instance, update Edgegap SDK.\n{e.Message}"
-                        );
-                        throw;
+                        string error =
+                            $"Couldn't parse server instance, update Edgegap SDK.\n{e.Message}";
+                        L.Error($"Server Browser | {error}");
+                        onErrorDelegate(error, request);
+                        return;
                     }
+                    onSuccessDelegate(instance, request);
                 },
                 onErrorDelegate
             );
@@ -247,21 +250,22 @@ namespace Edgegap.ServerBrowser
                 update.ToString(),
                 (string response, UnityWebRequest request) =>
                 {
+                    InstanceDTO<ServerInstanceMetadata, SlotMetadata> instance;
                     try
                     {
-                        InstanceDTO<ServerInstanceMetadata, SlotMetadata> instance =
-                            JsonConvert.DeserializeObject<
-                                InstanceDTO<ServerInstanceMetadata, SlotMetadata>
-                            >(response);
-                        onSuccessDelegate(instance, request);
+                        instance = JsonConvert.DeserializeObject<
+                            InstanceDTO<ServerInstanceMetadata, SlotMetadata>
+                        >(response);
                     }
                     catch (Exception e)
                     {
-                        L.Error(
-                            $"Server Browser | Couldn't parse server instance update response, update Edgegap SDK.\n{e.Message}"
-                        );
-                        throw;
+                        string error =
+                            $"Couldn't parse server instance update response, update Edgegap SDK.\n{e.Message}";
+                        L.Error($"Server Browser | {error}");
+                        onErrorDelegate(error, request);
+                        return;
                     }
+                    onSuccessDelegate(instance, request);
                 },
                 onErrorDelegate
             );
@@ -280,20 +284,20 @@ namespace Edgegap.ServerBrowser
                 update.ToString(),
                 (string response, UnityWebRequest request) =>
                 {
+                    SlotDTO<SlotMetadata> slot;
                     try
                     {
-                        SlotDTO<SlotMetadata> slot = JsonConvert.DeserializeObject<
-                            SlotDTO<SlotMetadata>
-                        >(response);
-                        onSuccessDelegate(slot, request);
+                        slot = JsonConvert.DeserializeObject<SlotDTO<SlotMetadata>>(response);
                     }
                     catch (Exception e)
                     {
-                        L.Error(
-                            $"Server Browser | Couldn't parse slot update response, update Edgegap SDK.\n{e.Message}"
-                        );
-                        throw;
+                        string error =
+                            $"Couldn't parse slot update response, update Edgegap SDK.\n{e.Message}";
+                        L.Error($"Server Browser | {error}");
+                        onErrorDelegate(error, request);
+                        return;
                     }
+                    onSuccessDelegate(slot, request);
                 },
                 onErrorDelegate
             );
@@ -328,19 +332,20 @@ namespace Edgegap.ServerBrowser
                 "",
                 (string response, UnityWebRequest request) =>
                 {
+                    KeepAliveResponseDTO keepAlive;
                     try
                     {
-                        KeepAliveResponseDTO keepAlive =
-                            JsonConvert.DeserializeObject<KeepAliveResponseDTO>(response);
-                        onSuccessDelegate(keepAlive, request);
+                        keepAlive = JsonConvert.DeserializeObject<KeepAliveResponseDTO>(response);
                     }
                     catch (Exception e)
                     {
-                        L.Error(
-                            $"Server Browser | Couldn't parse keepalive, update Edgegap SDK.\n{e.Message}"
-                        );
-                        throw;
+                        string error =
+                            $"Couldn't parse keepalive, update Edgegap SDK.\n{e.Message}";
+                        L.Error($"Server Browser | {error}");
+                        onErrorDelegate(error, request);
+                        return;
                     }
+                    onSuccessDelegate(keepAlive, request);
                 },
                 onErrorDelegate
             );
@@ -358,21 +363,23 @@ namespace Edgegap.ServerBrowser
                 reservations.ToString(),
                 (string response, UnityWebRequest request) =>
                 {
+                    AutoAssignReservationsResponseDTO reservations;
                     try
                     {
-                        AutoAssignReservationsResponseDTO reservations =
+                        reservations =
                             JsonConvert.DeserializeObject<AutoAssignReservationsResponseDTO>(
                                 response
                             );
-                        onSuccessDelegate(reservations, request);
                     }
                     catch (Exception e)
                     {
-                        L.Error(
-                            $"Server Browser | Couldn't parse seat reservations, update Edgegap SDK.\n{e.Message}"
-                        );
-                        throw;
+                        string error =
+                            $"Couldn't parse seat reservations, update Edgegap SDK.\n{e.Message}";
+                        L.Error($"Server Browser | {error}");
+                        onErrorDelegate(error, request);
+                        return;
                     }
+                    onSuccessDelegate(reservations, request);
                 },
                 onErrorDelegate
             );
@@ -392,19 +399,20 @@ namespace Edgegap.ServerBrowser
                 reservations.ToString(),
                 (string response, UnityWebRequest request) =>
                 {
+                    ReservationsDTO reservations;
                     try
                     {
-                        ReservationsDTO reservations =
-                            JsonConvert.DeserializeObject<ReservationsDTO>(response);
-                        onSuccessDelegate(reservations, request);
+                        reservations = JsonConvert.DeserializeObject<ReservationsDTO>(response);
                     }
                     catch (Exception e)
                     {
-                        L.Error(
-                            $"Server Browser | Couldn't parse seat reservations, update Edgegap SDK.\n{e.Message}"
-                        );
-                        throw;
+                        string error =
+                            $"Couldn't parse seat reservations, update Edgegap SDK.\n{e.Message}";
+                        L.Error($"Server Browser | {error}");
+                        onErrorDelegate(error, request);
+                        return;
                     }
+                    onSuccessDelegate(reservations, request);
                 },
                 onErrorDelegate
             );
@@ -423,19 +431,21 @@ namespace Edgegap.ServerBrowser
                 userIDs.ToString(),
                 (string response, UnityWebRequest request) =>
                 {
+                    ConfirmReservationsResponseDTO confirmation;
                     try
                     {
-                        ConfirmReservationsResponseDTO confirmation =
+                        confirmation =
                             JsonConvert.DeserializeObject<ConfirmReservationsResponseDTO>(response);
-                        onSuccessDelegate(confirmation, request);
                     }
                     catch (Exception e)
                     {
-                        L.Error(
-                            $"Server Browser | Couldn't parse reservation confirmations, update Edgegap SDK.\n{e.Message}"
-                        );
-                        throw;
+                        string error =
+                            $"Couldn't parse reservation confirmations, update Edgegap SDK.\n{e.Message}";
+                        L.Error($"Server Browser | {error}");
+                        onErrorDelegate(error, request);
+                        return;
                     }
+                    onSuccessDelegate(confirmation, request);
                 },
                 onErrorDelegate
             );

@@ -291,7 +291,7 @@ namespace Edgegap.Matchmaking
                 throw new Exception("AuthToken not declared.");
             }
 
-            MatchmakingApi = new Api(Handler, AuthToken, BaseUrl);
+            MatchmakingApi = new Api(Handler, AuthToken, BaseUrl, RequestTimeoutSeconds);
             Ping = new Edgegap.Ping(Handler);
 
             L.SubscribeLogger(Monitor, "MM", "Monitor");

@@ -110,6 +110,13 @@ namespace Edgegap.ServerBrowser
                 throw new Exception("AuthToken not declared.");
             }
 
+            // clamp before constructing Api so requests use the clamped timeout
+            bool timeoutClamped = HeartbeatIntervalSeconds < RequestTimeoutSeconds;
+            if (timeoutClamped)
+            {
+                RequestTimeoutSeconds = (int)HeartbeatIntervalSeconds;
+            }
+
             Api = new Api<ServerInstanceMetadata, SlotMetadata>(
                 Handler,
                 AuthToken,
@@ -120,6 +127,14 @@ namespace Edgegap.ServerBrowser
             L.SubscribeLogger(Monitor, "SB", "Monitor");
             Monitor.Subscribe(onMonitorUpdate);
 
+            if (timeoutClamped)
+            {
+                Monitor._Notify(
+                    $"request timeout clamped to heartbeat [{RequestTimeoutSeconds}]",
+                    ObservableActionType.Warn
+                );
+            }
+
             L.SubscribeLogger(Instance, "SB", "Instance");
             Instance.Subscribe(onInstanceUpdate);
 
@@ -127,15 +142,6 @@ namespace Edgegap.ServerBrowser
             if (onConfirmationsUpdate is not null)
             {
                 Confirmations.Subscribe(onConfirmationsUpdate);
-            }
-
-            if (HeartbeatIntervalSeconds < RequestTimeoutSeconds)
-            {
-                RequestTimeoutSeconds = (int)HeartbeatIntervalSeconds;
-                Monitor._Notify(
-                    $"request timeout clamped to heartbeat [{RequestTimeoutSeconds}]",
-                    ObservableActionType.Warn
-                );
             }
 
             Status();
