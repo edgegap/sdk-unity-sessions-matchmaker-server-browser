@@ -32,6 +32,22 @@ namespace Edgegap
 
         public string Fqdn => string.IsNullOrEmpty(RequestID) ? "" : $"{RequestID}.pr.edgegap.net";
 
+        /// <summary>
+        /// Variables Edgegap always injects (and the samples mock), a missing one means the
+        /// build runs outside an Edgegap deployment.
+        /// </summary>
+        public static readonly string[] ExpectedVariables = new string[]
+        {
+            "ARBITRIUM_REQUEST_ID",
+            "ARBITRIUM_PUBLIC_IP",
+            "ARBITRIUM_DEPLOYMENT_TAGS",
+            "ARBITRIUM_HOST_BASE_CLOCK_FREQUENCY",
+            "ARBITRIUM_DEPLOYMENT_VCPU_UNITS",
+            "ARBITRIUM_DEPLOYMENT_MEMORY_MB",
+            "ARBITRIUM_DEPLOYMENT_LOCATION",
+            "ARBITRIUM_PORTS_MAPPING",
+        };
+
         public DeploymentEnvironmentDTO(IDictionary env)
         {
             foreach (DictionaryEntry entry in env)
@@ -98,13 +114,28 @@ namespace Edgegap
                 {
                     PortMapping = TryParseEnvVariableJSON<PortMappingEnvironmentVariable>(
                         entry
-                    ).Ports;
+                    )?.Ports;
                 }
             }
 
+            // never throw, so server builds can run outside a deployment (e.g. locally)
+            List<string> missing = ExpectedVariables
+                .Where(variable => !env.Contains(variable))
+                .ToList();
+            if (missing.Count > 0)
+            {
+                L.Warn(
+                    $"Edgegap Env | Missing variables, expected when running outside an Edgegap deployment: {string.Join(", ", missing)}"
+                );
+            }
+
+            PortMapping ??= new Dictionary<string, PortMappingDTO>();
             foreach (PortMappingDTO port in PortMapping.Values)
             {
-                port.Link ??= $"{Fqdn}:{port.External}";
+                if (port is not null)
+                {
+                    port.Link ??= $"{Fqdn}:{port.External}";
+                }
             }
         }
 

@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Globalization;
 using Newtonsoft.Json;
 
 namespace Edgegap
@@ -36,6 +37,30 @@ namespace Edgegap
 
         [JsonProperty("protocol")]
         public string Protocol;
+
+        /// <summary>
+        /// Internal port as a number, null if missing or not a number.
+        /// </summary>
+        [JsonIgnore]
+        public int? InternalPort => ParseInt(Internal);
+
+        /// <summary>
+        /// External port as a number, null if missing or not a number.
+        /// </summary>
+        [JsonIgnore]
+        public int? ExternalPort => ParseInt(External);
+
+        internal static int? ParseInt(string value)
+        {
+            return int.TryParse(
+                value,
+                NumberStyles.Integer,
+                CultureInfo.InvariantCulture,
+                out int number
+            )
+                ? number
+                : null;
+        }
 
         public override string ToString()
         {
