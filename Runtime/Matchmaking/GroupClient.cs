@@ -38,6 +38,9 @@ namespace Edgegap.Matchmaking
         public bool Owner { get; private set; } = false;
         private protected bool Polling = false;
 
+        // incremented by StopMatchmaking, so stale polling loops, responses and expiries are dropped
+        private protected int Session = 0;
+
         public GroupClient(
             MonoBehaviour handler,
             string baseUrl,
@@ -122,7 +125,7 @@ namespace Edgegap.Matchmaking
 
         public void ResumeMatchmaking(GroupUpResponseDTO group, bool abandon = false)
         {
-            if (Group.Current is not null && !abandon)
+            if (Group.Current?.GroupID is not null && !abandon)
             {
                 Group._Error("conflict, abandon and restart");
                 return;
@@ -138,7 +141,7 @@ namespace Edgegap.Matchmaking
 
         public void CreateGroup(G group, bool abandon = false)
         {
-            if (Group.Current is not null && !abandon)
+            if (Group.Current?.GroupID is not null && !abandon)
             {
                 Group._Error("conflict, abandon and restart");
                 return;
@@ -165,7 +168,7 @@ namespace Edgegap.Matchmaking
 
         public void JoinGroup(G member, string groupId, bool abandon = false)
         {
-            if (Group.Current is not null && !abandon)
+            if (Group.Current?.GroupID is not null && !abandon)
             {
                 Group._Error("conflict, abandon and restart");
                 return;
@@ -200,7 +203,7 @@ namespace Edgegap.Matchmaking
 
         public void SetReady(bool isReady)
         {
-            if (Group.Current is null)
+            if (Group.Current?.GroupID is null)
             {
                 Group._Error("group not found");
                 return;
@@ -234,6 +237,7 @@ namespace Edgegap.Matchmaking
 
         public void StopMatchmaking(Action onCompletedDelegate = null)
         {
+            Session++;
             Polling = false;
 
             if (Group.Current?.GroupID is null)
@@ -325,9 +329,10 @@ namespace Edgegap.Matchmaking
         #endregion
 
         #region Internals
-        internal void StartPollingGroup(int consecutiveErrors = 0)
+        internal void StartPollingGroup(int consecutiveErrors = 0, int? session = null)
         {
-            if (!Polling)
+            int pollingSession = session ?? Session;
+            if (!Polling || pollingSession != Session)
             {
                 if (LogPollingUpdates)
                 {
@@ -346,6 +351,11 @@ namespace Edgegap.Matchmaking
                 Group.Current.MemberID,
                 (GroupUpResponseDTO group, UnityWebRequest request) =>
                 {
+                    if (pollingSession != Session)
+                    {
+                        return;
+                    }
+
                     if (Group.Current is not null && group.Status != Group.Current.Status)
                     {
                         Group._Update(group, $"group updated [{group.Status}]");
@@ -355,20 +365,25 @@ namespace Edgegap.Matchmaking
                             || Group.Current.Status == "CANCELLED"
                         )
                         {
-                            Handler.StartCoroutine(ExpireGroup());
+                            Handler.StartCoroutine(ExpireGroup(pollingSession));
                         }
                         else
                         {
-                            Handler.StartCoroutine(DelayPollingGroup());
+                            Handler.StartCoroutine(DelayPollingGroup(0, pollingSession));
                         }
                     }
                     else
                     {
-                        Handler.StartCoroutine(DelayPollingGroup());
+                        Handler.StartCoroutine(DelayPollingGroup(0, pollingSession));
                     }
                 },
                 (string error, UnityWebRequest request) =>
                 {
+                    if (pollingSession != Session)
+                    {
+                        return;
+                    }
+
                     if (consecutiveErrors + 1 > MaxConsecutivePollingErrors)
                     {
                         Group._Error($"polling failed, reached maximum retries\n{error}");
@@ -378,7 +393,9 @@ namespace Edgegap.Matchmaking
                     {
                         if (request.responseCode == 429 || request.responseCode >= 500)
                         {
-                            Handler.StartCoroutine(DelayPollingGroup(consecutiveErrors + 1));
+                            Handler.StartCoroutine(
+                                DelayPollingGroup(consecutiveErrors + 1, pollingSession)
+                            );
                         }
                         else
                         {
@@ -390,16 +407,26 @@ namespace Edgegap.Matchmaking
             );
         }
 
-        internal IEnumerator DelayPollingGroup(int consecutiveErrors = 0)
+        internal IEnumerator DelayPollingGroup(int consecutiveErrors = 0, int? session = null)
         {
-            yield return new WaitForSeconds(PollingBackoffSeconds + (0.1f * Random.value));
-            StartPollingGroup(consecutiveErrors);
+            int pollingSession = session ?? Session;
+            // jitter scales with the backoff so clients that start together drift apart
+            yield return new WaitForSeconds(PollingBackoffSeconds * Random.Range(0.8f, 1.2f));
+            StartPollingGroup(consecutiveErrors, pollingSession);
         }
 
-        internal IEnumerator ExpireGroup()
+        internal IEnumerator ExpireGroup(int? session = null)
         {
+            int expiringSession = session ?? Session;
+            GroupUpResponseDTO expiring = Group.Current;
             Polling = false;
             yield return new WaitForSeconds(RemoveGroupSeconds);
+
+            // a group created, joined or resumed meanwhile must not be removed
+            if (expiringSession != Session || !ReferenceEquals(Group.Current, expiring))
+            {
+                yield break;
+            }
             Group._Update(null, "removed");
         }
 
@@ -439,6 +466,11 @@ namespace Edgegap.Matchmaking
             if (request.responseCode == 409)
             {
                 Group._Notify("abandon failed (match found)", ObservableActionType.Warn);
+                if (onCompletedDelegate is not null)
+                {
+                    // a matched group can't be abandoned, so the requested restart doesn't happen
+                    Group._Notify("restart skipped (match found)", ObservableActionType.Warn);
+                }
                 Polling = true;
                 StartPollingGroup();
                 return;
