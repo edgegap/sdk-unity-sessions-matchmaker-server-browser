@@ -1,6 +1,7 @@
 using System;
 using System.Collections;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Text;
 using UnityEngine;
 using UnityEngine.Networking;
@@ -147,25 +148,18 @@ namespace Edgegap
                     onSuccessDelegate,
                     (string error, UnityWebRequest req) =>
                     {
-                        Dictionary<string, string> responseHeaders = req.GetResponseHeaders();
-                        if (responseHeaders is null)
-                        {
-                            onErrorDelegate(error, req);
-                            return;
-                        }
+                        // no response at all (DNS failure, connection reset, timeout) is transient
+                        bool noResponse =
+                            req.responseCode == 0
+                            || req.result == UnityWebRequest.Result.ConnectionError;
+                        string retryAfter = GetHeader(req.GetResponseHeaders(), "Retry-After");
+                        bool retryable =
+                            noResponse
+                            || retryAfter is not null
+                            || req.responseCode == 429
+                            || req.responseCode >= 500;
 
-                        bool retryAfterHeader = responseHeaders.TryGetValue(
-                            "Retry-After",
-                            out var retryAfter
-                        );
-                        if (
-                            retryParameters.RemainingAttempts <= 0
-                            || (
-                                retryAfterHeader == false
-                                && req.responseCode != 429
-                                && req.responseCode < 500
-                            )
-                        )
+                        if (retryParameters.RemainingAttempts <= 0 || !retryable)
                         {
                             onErrorDelegate(error, req);
                             return;
@@ -175,28 +169,69 @@ namespace Edgegap
                             $"Retrying ({retryParameters.RemainingAttempts}/{retryParameters.MaxAttempts}) {request.method} {request.url}.\n{error}"
                         );
                         retryParameters.RemainingAttempts--;
-                        if (retryAfterHeader)
-                        {
-                            try
-                            {
-                                Single.TryParse(retryAfter, out float retryAfterFloat);
-                                retryParameters.BackoffSeconds = () =>
-                                    retryAfterFloat + (0.1f * Random.value);
-                            }
-                            catch (Exception e)
-                            {
-                                L.Error($"Error parsing Retry-After header: {e.Message}");
-                            }
-                        }
-                        else
-                        {
-                            retryParameters.BackoffSeconds = RetryParameters.DefaultBackoffSeconds;
-                        }
+
+                        // Retry-After applies to the next attempt only, custom backoff is kept
+                        float? retryAfterSeconds = ParseRetryAfterSeconds(retryAfter);
+                        retryParameters.NextDelaySeconds = retryAfterSeconds.HasValue
+                            ? retryAfterSeconds.Value * Random.Range(1f, 1.2f)
+                            : retryParameters.BackoffSeconds();
                         onRetryableDelegate(error, req, retryParameters);
                     },
                     retryParameters
                 )
             );
+        }
+
+        internal static string GetHeader(Dictionary<string, string> headers, string name)
+        {
+            if (headers is null)
+            {
+                return null;
+            }
+            foreach (KeyValuePair<string, string> header in headers)
+            {
+                if (string.Equals(header.Key, name, StringComparison.OrdinalIgnoreCase))
+                {
+                    return header.Value;
+                }
+            }
+            return null;
+        }
+
+        /// <summary>
+        /// Parse Retry-After as delay-seconds or HTTP-date, returns null if absent or invalid.
+        /// </summary>
+        internal static float? ParseRetryAfterSeconds(string retryAfter, DateTimeOffset? now = null)
+        {
+            if (string.IsNullOrWhiteSpace(retryAfter))
+            {
+                return null;
+            }
+            if (
+                float.TryParse(
+                    retryAfter.Trim(),
+                    NumberStyles.Float,
+                    CultureInfo.InvariantCulture,
+                    out float seconds
+                )
+            )
+            {
+                return Math.Max(0f, seconds);
+            }
+            if (
+                DateTimeOffset.TryParse(
+                    retryAfter.Trim(),
+                    CultureInfo.InvariantCulture,
+                    DateTimeStyles.AssumeUniversal,
+                    out DateTimeOffset date
+                )
+            )
+            {
+                // date in the past means retry right away
+                return Math.Max(0f, (float)(date - (now ?? DateTimeOffset.UtcNow)).TotalSeconds);
+            }
+            L.Warn($"Couldn't parse Retry-After header [{retryAfter}], using default backoff.");
+            return null;
         }
 
         public IEnumerator SendRequestEnumerator(
@@ -206,12 +241,14 @@ namespace Edgegap
             RetryParameters retryParameters = null
         )
         {
-            if (
-                retryParameters is not null
-                && retryParameters.RemainingAttempts < retryParameters.MaxAttempts
-            )
+            // only actual retries wait, the first attempt is sent right away
+            if (retryParameters?.NextDelaySeconds is float delaySeconds)
             {
-                yield return new WaitForSeconds(retryParameters.BackoffSeconds());
+                retryParameters.NextDelaySeconds = null;
+                if (delaySeconds > 0f)
+                {
+                    yield return new WaitForSeconds(delaySeconds);
+                }
             }
 
             yield return request.SendWebRequest();
@@ -235,16 +272,33 @@ namespace Edgegap
 
     public class RetryParameters
     {
-        public uint MaxAttempts = 3;
-        public uint RemainingAttempts = 3;
+        private uint? _RemainingAttempts;
+
+        public uint MaxAttempts { get; set; } = 3;
+
+        /// <summary>
+        /// Follows MaxAttempts until set or decremented, so an object initializer
+        /// like <c>new RetryParameters { MaxAttempts = 10 }</c> retries 10 times.
+        /// </summary>
+        public uint RemainingAttempts
+        {
+            get => _RemainingAttempts ?? MaxAttempts;
+            set => _RemainingAttempts = value;
+        }
+
         public Func<float> BackoffSeconds = DefaultBackoffSeconds;
 
-        public static readonly Func<float> DefaultBackoffSeconds = () => 1f + (0.1f * Random.value);
+        /// <summary>
+        /// Delay before the next attempt, set only when retrying.
+        /// </summary>
+        internal float? NextDelaySeconds;
+
+        public static readonly Func<float> DefaultBackoffSeconds = () =>
+            1f * Random.Range(0.8f, 1.2f);
 
         public RetryParameters(uint attempts = 3, Func<float> backoffSeconds = null)
         {
             MaxAttempts = attempts;
-            RemainingAttempts = attempts;
             BackoffSeconds = backoffSeconds ?? DefaultBackoffSeconds;
         }
     }

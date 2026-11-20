@@ -123,7 +123,7 @@ public class MatchmakingServerHandler : MonoBehaviour
             {
                 L.Error($"MM ServerHandler | Couldn't reach Self-Stop API.\n{error}");
             },
-            new RetryParameters { MaxAttempts = 10 }
+            new RetryParameters(10)
         );
     }
 }
