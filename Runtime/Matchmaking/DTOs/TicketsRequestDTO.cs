@@ -12,7 +12,8 @@ namespace Edgegap.Matchmaking
         public A Attributes;
 
 #nullable enable
-        [JsonProperty("player_ip")]
+        // omitted when unset, the Matchmaker then uses the request's IP
+        [JsonProperty("player_ip", NullValueHandling = NullValueHandling.Ignore)]
         public string? PlayerIP;
 
 #nullable disable
