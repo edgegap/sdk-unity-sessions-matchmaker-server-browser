@@ -49,6 +49,12 @@ namespace Edgegap.Matchmaking
         private protected bool BackfillRunning = false;
         private protected bool BackfillPending = false;
 
+        // backfill creations sent but not answered yet, counted toward capacity
+        private protected int CreatingBackfills = 0;
+
+        // incremented when a polling loop starts, so only the latest loop keeps polling
+        private protected int PollingSession = 0;
+
         public ServerAgent(
             MonoBehaviour handler,
             string baseUrl,
@@ -155,7 +161,8 @@ namespace Edgegap.Matchmaking
                 {
                     BackfillPending = false;
                     int plannedBackfills =
-                        TargetTeamSize - (Assignments.Count + Backfills.Current.Count);
+                        TargetTeamSize
+                        - (Assignments.Count + Backfills.Current.Count + CreatingBackfills);
 
                     for (int i = 0; i < plannedBackfills; ++i)
                     {
@@ -322,7 +329,7 @@ namespace Edgegap.Matchmaking
 
         internal void StartNewBackfill()
         {
-            if (Assignments.Count + Backfills.Current.Count >= TargetTeamSize)
+            if (Assignments.Count + Backfills.Current.Count + CreatingBackfills >= TargetTeamSize)
             {
                 Backfills._Error("maximum capacity currently reached");
                 return;
@@ -334,10 +341,12 @@ namespace Edgegap.Matchmaking
                 Assignments
             );
 
+            CreatingBackfills++;
             MatchmakingApi.CreateBackfill(
                 backfill,
                 (BackfillResponseDTO<A> backfillRes, UnityWebRequest request) =>
                 {
+                    CreatingBackfills--;
                     backfillRes.CreatedAt = DateTime.Now;
 
                     Dictionary<string, BackfillResponseDTO<A>> newBackfills = new Dictionary<
@@ -351,20 +360,43 @@ namespace Edgegap.Matchmaking
                     if (!Polling && Backfills.Current.Count > 0)
                     {
                         Polling = true;
-                        Handler.StartCoroutine(DelayMethod(() => StartPollingBackfills()));
+                        int session = ++PollingSession;
+                        Handler.StartCoroutine(
+                            DelayMethod(() => StartPollingBackfills(0, null, session))
+                        );
                     }
                 },
                 (string error, UnityWebRequest request) =>
                 {
+                    CreatingBackfills--;
                     Backfills._Error($"create failed\n{error}");
                 }
             );
         }
 
-        internal void StartPollingBackfills(int consecutiveErrors = 0)
+        internal void StartPollingBackfills(
+            int consecutiveErrors = 0,
+            List<string> failedBackfills = null,
+            int? session = null
+        )
         {
+            int pollingSession = session ?? PollingSession;
+            if (pollingSession != PollingSession)
+            {
+                // a newer polling loop was started
+                return;
+            }
+
             if (!Polling)
             {
+                Backfills._Notify($"polling stopped");
+                return;
+            }
+
+            if (Backfills.Current.Count == 0)
+            {
+                // creating a backfill starts polling again
+                Polling = false;
                 Backfills._Notify($"polling stopped");
                 return;
             }
@@ -372,7 +404,17 @@ namespace Edgegap.Matchmaking
             if (consecutiveErrors > MaxConsecutivePollingErrors)
             {
                 Polling = false;
-                Backfills._Error($"polling failed (reached maximum retries)");
+                if (failedBackfills is null || failedBackfills.Count == 0)
+                {
+                    Backfills._Error($"polling failed (reached maximum retries)");
+                }
+                else
+                {
+                    foreach (string failed in failedBackfills)
+                    {
+                        Backfills._Error($"polling failed (reached maximum retries) [{failed}]");
+                    }
+                }
                 AbandonAllBackfills();
                 return;
             }
@@ -385,6 +427,7 @@ namespace Edgegap.Matchmaking
             }
 
             ConcurrentQueue<bool> requestsFinished = new ConcurrentQueue<bool>();
+            ConcurrentQueue<string> requestsFailed = new ConcurrentQueue<string>();
             int requestsPending = Backfills.Current.Count;
 
             foreach (BackfillResponseDTO<A> b in Backfills.Current.Values)
@@ -408,13 +451,17 @@ namespace Edgegap.Matchmaking
                                 Attributes = ticket.Attributes,
                             };
 
-                            Backfills._Update(Backfills.Current, $"assigned [{backfill.ID}]");
+                            Dictionary<string, BackfillResponseDTO<A>> assignedBackfills =
+                                new Dictionary<string, BackfillResponseDTO<A>>(Backfills.Current);
+                            assignedBackfills[backfill.ID] = backfill;
+                            Backfills._Update(assignedBackfills, $"assigned [{backfill.ID}]");
                             RemoveBackfill(Backfills.Current, backfill.ID);
                             Handler.StartCoroutine(CheckTicketConnection(ticket.ID));
                         }
                     },
                     (string error, UnityWebRequest request) =>
                     {
+                        requestsFailed.Enqueue(b.ID);
                         requestsFinished.Enqueue(false);
 
                         if (request.responseCode == 404)
@@ -450,8 +497,11 @@ namespace Edgegap.Matchmaking
                             consecutiveErrors = 0;
                         }
 
+                        List<string> failed = new List<string>(requestsFailed);
                         Handler.StartCoroutine(
-                            DelayMethod(() => StartPollingBackfills(consecutiveErrors))
+                            DelayMethod(() =>
+                                StartPollingBackfills(consecutiveErrors, failed, pollingSession)
+                            )
                         );
                     }
                 )
@@ -470,7 +520,8 @@ namespace Edgegap.Matchmaking
 
         internal IEnumerator DelayMethod(Action onDelayFinished, float? delaySeconds = null)
         {
-            delaySeconds ??= PollingBackoffSeconds + (0.1f * Random.value);
+            // jitter scales with the backoff so servers that start together drift apart
+            delaySeconds ??= PollingBackoffSeconds * Random.Range(0.8f, 1.2f);
 
             yield return new WaitForSeconds((float)delaySeconds);
             onDelayFinished();
