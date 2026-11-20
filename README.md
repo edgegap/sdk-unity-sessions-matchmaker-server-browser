@@ -64,3 +64,19 @@ This section is only for developers working on this plugin or other plugins inte
 This project uses [CSharpier code formatter](https://csharpier.com/) to ensure consistent and readable formatting, configured in `/.config/dotnet-tools.json`.
 
 See [Editor integration](https://csharpier.com/docs/Editors) for Visual Studio extensions, optionally configure `Reformat with CSharpier` on Save under Tools | Options | CSharpier | General. You may also configure [running formatting as a pre-commit git hook](https://csharpier.com/docs/Pre-commit).
+
+### Tests
+
+PlayMode tests in `Tests/Runtime` (`Edgegap.SDK.Tests` assembly) exercise the SDK against a local mock HTTP server, no Edgegap services are called. While the tests run, `Player Settings > Allow downloads over HTTP` is temporarily set to `Always allowed` and restored afterwards.
+
+To run them when the SDK is installed as a package, add it to `testables` in your project's `Packages/manifest.json`:
+
+```json
+"testables": ["com.edgegap.unity-sdk"]
+```
+
+Then open **Window > General > Test Runner > PlayMode** and run `Edgegap.SDK.Tests`, or from the command line:
+
+```
+Unity -batchmode -projectPath <project> -runTests -testPlatform PlayMode -assemblyNames Edgegap.SDK.Tests -testResults results.xml
+```
