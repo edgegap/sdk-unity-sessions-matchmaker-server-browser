@@ -37,8 +37,8 @@ namespace Edgegap.ServerBrowser
             return new SlotDTO<SlotMetadata>()
             {
                 Name = Name,
-                Metadata = Metadata.Merge(update.Metadata),
-                AvailableSeats = (uint)(AvailableSeats + update.AvailableSeats),
+                Metadata = Metadata is null ? update.Metadata : Metadata.Merge(update.Metadata),
+                AvailableSeats = (uint)Math.Max(0L, (long)AvailableSeats + update.AvailableSeats),
                 ReservedSeats = ReservedSeats,
                 JoinableSeats = JoinableSeats,
             };
