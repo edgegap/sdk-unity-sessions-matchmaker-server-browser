@@ -29,6 +29,64 @@ namespace Edgegap.ServerBrowser
     {
         public string Field;
         public abstract override string ToString();
+
+        /// <summary>
+        /// Quote a string value, escaping single quotes OData-style ('').
+        /// </summary>
+        public static string Quote(string value)
+        {
+            return $"'{(value ?? "").Replace("'", "''")}'";
+        }
+    }
+
+    /// <summary>
+    /// Matches when any of the filters match: (a or b or ...).
+    /// </summary>
+    public class AnyOf : FilterBase
+    {
+        public List<FilterBase> Filters;
+
+        public AnyOf(params FilterBase[] filters)
+            : this(filters?.ToList()) { }
+
+        public AnyOf(List<FilterBase> filters)
+        {
+            if (filters is null || filters.Count == 0)
+            {
+                throw new System.Exception("Edgegap SDK AnyOf | Filters cannot be empty.");
+            }
+            Filters = filters;
+        }
+
+        public override string ToString()
+        {
+            return $"({string.Join(" or ", Filters.Select(f => f.ToString()))})";
+        }
+    }
+
+    /// <summary>
+    /// Matches when all of the filters match: (a and b and ...), for grouping inside AnyOf.
+    /// </summary>
+    public class AllOf : FilterBase
+    {
+        public List<FilterBase> Filters;
+
+        public AllOf(params FilterBase[] filters)
+            : this(filters?.ToList()) { }
+
+        public AllOf(List<FilterBase> filters)
+        {
+            if (filters is null || filters.Count == 0)
+            {
+                throw new System.Exception("Edgegap SDK AllOf | Filters cannot be empty.");
+            }
+            Filters = filters;
+        }
+
+        public override string ToString()
+        {
+            return $"({string.Join(" and ", Filters.Select(f => f.ToString()))})";
+        }
     }
 
     public abstract class Filter<T> : FilterBase
@@ -46,7 +104,7 @@ namespace Edgegap.ServerBrowser
     {
         public override string ToString()
         {
-            return $"{Field} {Operator} '{Value}'";
+            return $"{Field} {Operator} {FilterBase.Quote(Value)}";
         }
     }
 
@@ -62,7 +120,7 @@ namespace Edgegap.ServerBrowser
 
         public override string ToString()
         {
-            return $"{Field} in ({string.Join(",", Value.Select(f => $"'{f}'"))})";
+            return $"{Field} in ({string.Join(",", Value.Select(FilterBase.Quote))})";
         }
     }
 

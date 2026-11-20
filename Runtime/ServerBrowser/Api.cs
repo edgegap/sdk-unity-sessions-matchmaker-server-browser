@@ -164,13 +164,13 @@ namespace Edgegap.ServerBrowser
         {
             List<string> queryParams = new List<string>()
             {
-                { $"$filter={filter?.ToString() ?? ""}" },
-                { $"$order={order}" },
+                { $"$filter={Uri.EscapeDataString(filter?.ToString() ?? "")}" },
+                { $"$order={Uri.EscapeDataString(order ?? "")}" },
                 { $"limit={limit}" },
             };
             if (cursor != null)
             {
-                queryParams.Add($"cursor={cursor}");
+                queryParams.Add($"cursor={Uri.EscapeDataString(cursor)}");
             }
 
             Request.Get(
