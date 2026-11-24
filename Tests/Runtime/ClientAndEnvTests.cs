@@ -132,7 +132,7 @@ namespace EdgegapSdkTests
                 .Select(p => p.Split(new[] { '=' }, 2))
                 .ToDictionary(p => p[0], p => Uri.UnescapeDataString(p[1]));
             Assert.AreEqual("metadata.name eq 'Bob''s a&b #1+2'", query["$filter"], raw);
-            Assert.AreEqual("metadata.name asc", query["$order"], raw);
+            Assert.AreEqual("metadata.name asc", query["$orderby"], raw);
             Assert.AreEqual("cursor/+=", query["cursor"], raw);
         }
 
