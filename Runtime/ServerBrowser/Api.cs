@@ -165,7 +165,7 @@ namespace Edgegap.ServerBrowser
             List<string> queryParams = new List<string>()
             {
                 { $"$filter={Uri.EscapeDataString(filter?.ToString() ?? "")}" },
-                { $"$order={Uri.EscapeDataString(order ?? "")}" },
+                { $"$orderby={Uri.EscapeDataString(order ?? "")}" },
                 { $"limit={limit}" },
             };
             if (cursor != null)
