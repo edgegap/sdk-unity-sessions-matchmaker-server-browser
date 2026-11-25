@@ -11,7 +11,8 @@ using UnityEngine.TestTools;
 namespace EdgegapSdkTests
 {
     /// <summary>
-    /// GroupClient fixes #88 #89 #90 #91, backfill ServerAgent fixes #92 #93 #94.
+    /// GroupClient fixes #88 #89 #90 #91 and resumed group ownership, backfill ServerAgent fixes
+    /// #92 #93 #94 and backfill disabled by AbandonAllBackfills.
     /// </summary>
     public class MatchmakingTests : SdkTestBase
     {
@@ -151,6 +152,52 @@ namespace EdgegapSdkTests
             Assert.AreEqual("g1", Client.Group.Current?.GroupID, "matched group must be kept");
         }
 
+        private GroupUpResponseDTO SavedGroup(string groupID) =>
+            new GroupUpResponseDTO
+            {
+                GroupID = groupID,
+                MemberID = $"m-{groupID}",
+                Status = "SEARCHING",
+                IsReady = true,
+            };
+
+        private List<string> DeletedGroupPaths() =>
+            Server.RequestsTo("DELETE", "/groups/").Select(r => r.Path).ToList();
+
+        [UnityTest]
+        public IEnumerator ResumedOwnerDeletesGroup()
+        {
+            StartClient();
+            Client.ResumeMatchmaking(SavedGroup("g9"), owner: true);
+            yield return WaitFor(() => Client.Group.Current?.GroupID == "g9", 5, "group resumed");
+            Assert.IsTrue(Client.Owner, "resumed owner");
+            Client.StopMatchmaking();
+            yield return WaitFor(() => Client.Group.Current is null, 5, "group abandoned");
+            CollectionAssert.AreEqual(
+                new[] { "/groups/g9" },
+                DeletedGroupPaths(),
+                "owner must delete the group, not leave it"
+            );
+        }
+
+        [UnityTest]
+        public IEnumerator ResumedMemberLeavesGroupAfterOwningAnother()
+        {
+            StartClient();
+            Client.CreateGroup(Request());
+            yield return WaitFor(() => Client.Group.Current?.GroupID == "g1", 5, "group created");
+            Client.ResumeMatchmaking(SavedGroup("g9"), abandon: true);
+            yield return WaitFor(() => Client.Group.Current?.GroupID == "g9", 5, "group resumed");
+            Assert.IsFalse(Client.Owner, "owner kept from the previous group");
+            Client.StopMatchmaking();
+            yield return WaitFor(() => Client.Group.Current is null, 5, "group left");
+            CollectionAssert.AreEqual(
+                new[] { "/groups/g1", "/groups/g9/members/m-g9" },
+                DeletedGroupPaths(),
+                "previous group deleted as owner, resumed group left as member"
+            );
+        }
+
         // ---------------- backfill ----------------
 
         private int BackfillCounter;
@@ -240,6 +287,7 @@ namespace EdgegapSdkTests
         public IEnumerator QuickAbandonsDoNotOverProvision_92()
         {
             StartBackfill(2, "t1", "t2");
+            Backfill.AddBackfills();
             Backfill.AbandonPlayer("t1");
             Backfill.AbandonPlayer("t2");
             yield return Wait(2f);
@@ -255,6 +303,7 @@ namespace EdgegapSdkTests
         public IEnumerator AssignedUpdateAndPollingStops_93_94()
         {
             StartBackfill(1, "t1");
+            Backfill.AddBackfills();
             Backfill.AbandonPlayer("t1");
             yield return WaitFor(
                 () => Backfill.Backfills.Current.Count == 1,
@@ -283,6 +332,63 @@ namespace EdgegapSdkTests
                 polls,
                 Server.RequestsTo("GET", "/backfills/").Count,
                 "#94 still polling"
+            );
+        }
+
+        [UnityTest]
+        public IEnumerator NoBackfillBeforeAddOrAfterAbandonAll()
+        {
+            StartBackfill(2, "t1", "t2");
+            Backfill.AbandonPlayer("t1");
+            yield return Wait(1f);
+            Assert.AreEqual(
+                0,
+                Server.RequestsTo("POST", "/backfills").Count,
+                "backfill created before AddBackfills"
+            );
+
+            Backfill.AddBackfills();
+            yield return WaitFor(
+                () => Backfill.Backfills.Current.Count == 1,
+                5,
+                "backfill created"
+            );
+            bool completed = false;
+            Backfill.AbandonAllBackfills(() => completed = true);
+            yield return WaitFor(() => completed, 5, "backfills abandoned");
+            Backfill.AbandonPlayer("t2");
+            yield return Wait(1.5f);
+            Assert.AreEqual(
+                1,
+                Server.RequestsTo("POST", "/backfills").Count,
+                "backfill created after AbandonAllBackfills"
+            );
+            Assert.AreEqual(0, Backfill.Backfills.Current.Count);
+        }
+
+        [UnityTest]
+        public IEnumerator AbandonAllDeletesBackfillsStillBeingCreated()
+        {
+            StartBackfill(2, "t1", "t2");
+            Backfill.AddBackfills();
+            Backfill.AbandonPlayer("t1");
+            Backfill.AbandonPlayer("t2");
+            // the mock answers creations after 500 ms, so both are still in flight
+            bool completed = false;
+            Backfill.AbandonAllBackfills(() => completed = true);
+            yield return WaitFor(() => completed, 5, "backfills abandoned");
+            Assert.AreEqual(2, Server.RequestsTo("POST", "/backfills").Count);
+            CollectionAssert.AreEquivalent(
+                new[] { "/backfills/b1", "/backfills/b2" },
+                Server.RequestsTo("DELETE", "/backfills/").Select(r => r.Path).ToList(),
+                "backfills created after AbandonAllBackfills must be deleted"
+            );
+            Assert.AreEqual(0, Backfill.Backfills.Current.Count);
+            yield return Wait(1.5f);
+            Assert.AreEqual(
+                0,
+                Server.RequestsTo("GET", "/backfills/").Count,
+                "polling restarted after AbandonAllBackfills"
             );
         }
     }

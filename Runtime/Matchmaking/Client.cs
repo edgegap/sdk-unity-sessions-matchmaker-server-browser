@@ -115,10 +115,11 @@ namespace Edgegap.Matchmaking
         public void MeasureBeaconsRoundTripTime(
             BeaconDTO[] beacons,
             Action<Dictionary<string, float>> onCompleteDelegate,
-            int requests = 3
+            int requests = 3,
+            PingProtocol[] protocols = null
         )
         {
-            Handler.StartCoroutine(GetLatencies(beacons, onCompleteDelegate, requests));
+            Handler.StartCoroutine(GetLatencies(beacons, onCompleteDelegate, requests, protocols));
         }
 
         [Obsolete("Managing tickets in clients is deprecated, see the Group Up flow instead")]
@@ -389,23 +390,12 @@ namespace Edgegap.Matchmaking
         internal IEnumerator GetLatencies(
             BeaconDTO[] beacons,
             Action<Dictionary<string, float>> onCompleteDelegate,
-            int requests
+            int requests,
+            PingProtocol[] protocols = null
         )
         {
-            Dictionary<string, float> results = new Dictionary<string, float>();
-            foreach (BeaconDTO beacon in beacons)
-            {
-                Handler.StartCoroutine(
-                    Ping.GetAverageRoundTripTime(
-                        beacon.PublicIP,
-                        (double ping) => results.Add(beacon.Location.City, (float)ping),
-                        requests
-                    )
-                );
-            }
-
-            yield return new WaitUntil(() => results.Keys.Count == beacons.Count());
-            onCompleteDelegate(results);
+            // beacons that never answer are left out, see Ping.MeasureBeacons
+            return Ping.MeasureBeacons(beacons, onCompleteDelegate, requests, protocols);
         }
         #endregion
     }

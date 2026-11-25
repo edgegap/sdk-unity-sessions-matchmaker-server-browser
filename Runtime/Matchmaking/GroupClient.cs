@@ -117,13 +117,23 @@ namespace Edgegap.Matchmaking
         public void MeasureBeaconsRoundTripTime(
             BeaconDTO[] beacons,
             Action<Dictionary<string, float>> onCompleteDelegate,
-            int requests = 3
+            int requests = 3,
+            PingProtocol[] protocols = null
         )
         {
-            Handler.StartCoroutine(GetLatencies(beacons, onCompleteDelegate, requests));
+            Handler.StartCoroutine(GetLatencies(beacons, onCompleteDelegate, requests, protocols));
         }
 
-        public void ResumeMatchmaking(GroupUpResponseDTO group, bool abandon = false)
+        /// <summary>
+        /// Resume polling a group saved earlier, for example before a restart. Pass owner true
+        /// if this player created the group (save Owner alongside the group), so StopMatchmaking
+        /// deletes the group instead of leaving it.
+        /// </summary>
+        public void ResumeMatchmaking(
+            GroupUpResponseDTO group,
+            bool abandon = false,
+            bool owner = false
+        )
         {
             if (Group.Current?.GroupID is not null && !abandon)
             {
@@ -133,6 +143,8 @@ namespace Edgegap.Matchmaking
 
             StopMatchmaking(() =>
             {
+                // set after stopping, so the previous group is still stopped as its own role
+                Owner = owner;
                 Group._Update(group, "resumed");
                 Polling = true;
                 StartPollingGroup();
@@ -433,28 +445,12 @@ namespace Edgegap.Matchmaking
         internal IEnumerator GetLatencies(
             BeaconDTO[] beacons,
             Action<Dictionary<string, float>> onCompleteDelegate,
-            int requests
+            int requests,
+            PingProtocol[] protocols = null
         )
         {
-            beacons = beacons
-                .GroupBy(beacon => beacon.Location.City)
-                .Select(group => group.First())
-                .ToArray();
-
-            Dictionary<string, float> results = new Dictionary<string, float>();
-            foreach (BeaconDTO beacon in beacons)
-            {
-                Handler.StartCoroutine(
-                    Ping.GetAverageRoundTripTime(
-                        beacon.PublicIP,
-                        (double ping) => results.Add(beacon.Location.City, (float)ping),
-                        requests
-                    )
-                );
-            }
-
-            yield return new WaitUntil(() => results.Keys.Count == beacons.Count());
-            onCompleteDelegate(results);
+            // beacons that never answer are left out, see Ping.MeasureBeacons
+            return Ping.MeasureBeacons(beacons, onCompleteDelegate, requests, protocols);
         }
 
         internal void OnStopMatchmakingError(
