@@ -52,6 +52,9 @@ namespace Edgegap.Matchmaking
         // backfill creations sent but not answered yet, counted toward capacity
         private protected int CreatingBackfills = 0;
 
+        // true between AddBackfills and AbandonAllBackfills, no backfill is created or refilled otherwise
+        private protected bool BackfillEnabled = false;
+
         // incremented when a polling loop starts, so only the latest loop keeps polling
         private protected int PollingSession = 0;
 
@@ -99,7 +102,7 @@ namespace Edgegap.Matchmaking
                 L.Log(
                     $"MM | Backfill - ticket abandoned{(expiredGrace ? " (connection grace period expired)" : "")} [{ticketID}]"
                 );
-                AddBackfills();
+                FillSeats();
                 return true;
             }
 
@@ -145,36 +148,14 @@ namespace Edgegap.Matchmaking
             );
         }
 
+        /// <summary>
+        /// Enable backfill and create backfills for every open seat. Seats freed later (AbandonPlayer,
+        /// connection grace period expiry) are refilled until AbandonAllBackfills.
+        /// </summary>
         public void AddBackfills()
         {
-            if (BackfillRunning)
-            {
-                BackfillPending = true;
-                return;
-            }
-
-            BackfillRunning = true;
-
-            try
-            {
-                do
-                {
-                    BackfillPending = false;
-                    int plannedBackfills =
-                        TargetTeamSize
-                        - (Assignments.Count + Backfills.Current.Count + CreatingBackfills);
-
-                    for (int i = 0; i < plannedBackfills; ++i)
-                    {
-                        StartNewBackfill();
-                    }
-                } while (BackfillPending);
-            }
-            finally
-            {
-                BackfillRunning = false;
-                BackfillPending = false;
-            }
+            BackfillEnabled = true;
+            FillSeats();
         }
 
         public void AbandonBackfill(string backfillID, Action onCompletedDelegate = null)
@@ -218,29 +199,22 @@ namespace Edgegap.Matchmaking
             );
         }
 
+        /// <summary>
+        /// Disable backfill, stop polling and delete every backfill, for example when the match starts.
+        /// Backfills still being created are deleted once created, so none is left behind.
+        /// </summary>
         public void AbandonAllBackfills(Action onCompletedDelegate = null)
         {
+            BackfillEnabled = false;
             Polling = false;
 
-            ConcurrentQueue<string> requestsFinished = new ConcurrentQueue<string>();
-            int requestsPending = Backfills.Current.Count;
-
-            foreach (KeyValuePair<string, BackfillResponseDTO<A>> b in Backfills.Current)
+            if (CreatingBackfills > 0)
             {
-                AbandonBackfill(
-                    b.Key,
-                    () =>
-                    {
-                        requestsFinished.Enqueue(b.Key);
-                    }
-                );
+                Handler.StartCoroutine(AbandonAllBackfillsWhenCreated(onCompletedDelegate));
             }
-
-            if (onCompletedDelegate is not null)
+            else
             {
-                Handler.StartCoroutine(
-                    WaitForRequests(requestsFinished, requestsPending, onCompletedDelegate)
-                );
+                AbandonCurrentBackfills(onCompletedDelegate);
             }
         }
         #endregion
@@ -298,6 +272,75 @@ namespace Edgegap.Matchmaking
 
         #region Internals
 
+        internal void FillSeats()
+        {
+            if (!BackfillEnabled)
+            {
+                return;
+            }
+
+            if (BackfillRunning)
+            {
+                BackfillPending = true;
+                return;
+            }
+
+            BackfillRunning = true;
+
+            try
+            {
+                do
+                {
+                    BackfillPending = false;
+                    int plannedBackfills =
+                        TargetTeamSize
+                        - (Assignments.Count + Backfills.Current.Count + CreatingBackfills);
+
+                    for (int i = 0; i < plannedBackfills; ++i)
+                    {
+                        StartNewBackfill();
+                    }
+                } while (BackfillPending);
+            }
+            finally
+            {
+                BackfillRunning = false;
+                BackfillPending = false;
+            }
+        }
+
+        internal IEnumerator AbandonAllBackfillsWhenCreated(Action onCompletedDelegate)
+        {
+            // a creation landing after the deletes would be left behind and restart polling
+            yield return new WaitUntil(() => CreatingBackfills == 0);
+            Polling = false;
+            AbandonCurrentBackfills(onCompletedDelegate);
+        }
+
+        internal void AbandonCurrentBackfills(Action onCompletedDelegate)
+        {
+            ConcurrentQueue<string> requestsFinished = new ConcurrentQueue<string>();
+            int requestsPending = Backfills.Current.Count;
+
+            foreach (KeyValuePair<string, BackfillResponseDTO<A>> b in Backfills.Current)
+            {
+                AbandonBackfill(
+                    b.Key,
+                    () =>
+                    {
+                        requestsFinished.Enqueue(b.Key);
+                    }
+                );
+            }
+
+            if (onCompletedDelegate is not null)
+            {
+                Handler.StartCoroutine(
+                    WaitForRequests(requestsFinished, requestsPending, onCompletedDelegate)
+                );
+            }
+        }
+
         internal void RemoveBackfill(
             Dictionary<string, BackfillResponseDTO<A>> backfills,
             string backfillID,
@@ -329,6 +372,11 @@ namespace Edgegap.Matchmaking
 
         internal void StartNewBackfill()
         {
+            if (!BackfillEnabled)
+            {
+                return;
+            }
+
             if (Assignments.Count + Backfills.Current.Count + CreatingBackfills >= TargetTeamSize)
             {
                 Backfills._Error("maximum capacity currently reached");
@@ -357,7 +405,8 @@ namespace Edgegap.Matchmaking
                     newBackfills[backfillRes.ID] = backfillRes;
                     Backfills._Update(newBackfills, $"created [{backfillRes.ID}]");
 
-                    if (!Polling && Backfills.Current.Count > 0)
+                    // after AbandonAllBackfills, polling stays stopped and this backfill is deleted
+                    if (BackfillEnabled && !Polling && Backfills.Current.Count > 0)
                     {
                         Polling = true;
                         int session = ++PollingSession;
