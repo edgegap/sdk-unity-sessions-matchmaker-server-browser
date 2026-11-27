@@ -21,7 +21,7 @@ Install a Git Client, for example [git-scm](https://git-scm.com/). A git client 
 4. Input the URL of our SDK when prompted:
 
 ```
-https://github.com/edgegap/edgegap-unity-sdk.git
+https://github.com/edgegap/sdk-unity-sessions-matchmaker-server-browser.git
 ```
 
 5. Click **Add** and wait until installation is completed.
@@ -45,7 +45,7 @@ Navigate to Edgegap SDK in Unity Package Manager and click **Update**.
 
 ## Troubleshooting
 
-> Unity Editor shows `[Package Manager Window] Error adding package: https://github.com/edgegap/edgegap-unity-matchmaking-sdk.git`
+> Unity Editor shows `[Package Manager Window] Error adding package: https://github.com/edgegap/sdk-unity-sessions-matchmaker-server-browser.git`
 
 - If you’re adding our plugin via git URL, you will need to have a git client installed.
 
